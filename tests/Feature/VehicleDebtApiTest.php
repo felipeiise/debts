@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Application\Resilience\ProviderCircuitBreaker;
 use Illuminate\Support\Facades\Http;
+use Tests\Fakes\ProviderCircuitBreakerFake;
 use Tests\TestCase;
 
 final class VehicleDebtApiTest extends TestCase
@@ -36,16 +37,8 @@ final class VehicleDebtApiTest extends TestCase
 
     public function test_open_provider_circuit_skips_provider_and_uses_next_provider(): void
     {
-        $this->app->instance(ProviderCircuitBreaker::class, new class implements ProviderCircuitBreaker {
-            public function allows(string $provider): bool
-            {
-                return $provider !== 'provider_a';
-            }
-
-            public function recordSuccess(string $provider): void {}
-
-            public function recordFailure(string $provider): void {}
-        });
+        $breaker = new ProviderCircuitBreakerFake(['provider_a']);
+        $this->app->instance(ProviderCircuitBreaker::class, $breaker);
 
         Http::fake([
             'provider-b.test/*' => Http::response('<debts/>', 200),
