@@ -1,0 +1,123 @@
+{
+  "info": {
+    "_postman_id": "f7c8da4d-0b43-4c0a-9c38-6546f9f50130",
+    "name": "Vehicle Debt API",
+    "description": "API route and behavior checks. Start the local mock providers and Docker Compose stack first; select the included Local environment. Payment options are simulation data in the debt consultation response; there is no payment execution endpoint.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health check",
+      "request": {"method": "GET", "header": [], "url": "{{baseUrl}}/up"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('Laravel health route returns HTTP 200', () => pm.response.to.have.status(200));"]}}]
+    },
+    {
+      "name": "Search debts: TOTAL + payment simulations (Provider A JSON)",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"plate\": \"ABC1234\",\n  \"debt_type\": \"TOTAL\"\n}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('returns HTTP 200', () => pm.response.to.have.status(200));",
+        "const body = pm.response.json();",
+        "pm.test('Provider A is selected', () => pm.expect(body.provider).to.eql('provider_a'));",
+        "pm.test('returns all three mock debts', () => pm.expect(body.debts).to.have.length(3));",
+        "pm.test('money values are two-decimal strings', () => {",
+        "  pm.expect(body.total).to.match(/^\\d+\\.\\d{2}$/);",
+        "  body.debts.forEach(debt => { pm.expect(debt.original_amount).to.match(/^\\d+\\.\\d{2}$/); pm.expect(debt.interest).to.match(/^\\d+\\.\\d{2}$/); pm.expect(debt.total).to.match(/^\\d+\\.\\d{2}$/); });",
+        "});",
+        "pm.test('interest is simple daily interest with the IPVA cap', () => {",
+        "  const cents = value => Number(value.replace('.', ''));",
+        "  const halfUpRatio = (amount, numerator, denominator) => Math.floor((amount * numerator + denominator / 2) / denominator);",
+        "  body.debts.forEach(debt => {",
+        "    const principal = cents(debt.original_amount);",
+        "    const expectedInterest = debt.type === 'IPVA'",
+        "      ? Math.min(halfUpRatio(principal, 33 * debt.days_overdue, 10000), halfUpRatio(principal, 20, 100))",
+        "      : halfUpRatio(principal, debt.days_overdue, 100);",
+        "    pm.expect(cents(debt.interest), debt.id + ' interest').to.eql(expectedInterest);",
+        "    pm.expect(cents(debt.total), debt.id + ' updated total').to.eql(principal + expectedInterest);",
+        "  });",
+        "});",
+        "pm.test('provides PIX discount and card 1x, 6x, 12x plans', () => {",
+        "  const plans = body.payment_options;",
+        "  const pix = plans.find(option => option.method === 'PIX');",
+        "  const cards = plans.filter(option => option.method === 'CREDIT_CARD');",
+        "  pm.expect(pix).to.exist; pm.expect(cards.map(option => option.installments)).to.eql([1, 6, 12]);",
+        "  const cents = value => Number(value.replace('.', ''));",
+        "  const roundedDiscount = Math.floor(cents(body.total) * 0.95 + 0.5);",
+        "  pm.expect(cents(pix.total)).to.eql(roundedDiscount);",
+        "  pm.expect(cards[0].total).to.eql(body.total);",
+        "  cards.slice(1).forEach(plan => {",
+        "    const rate = 0.025;",
+        "    const expectedInstallment = Math.floor(cents(body.total) * rate / (1 - Math.pow(1 + rate, -plan.installments)) + 0.5);",
+        "    pm.expect(cents(plan.installment_amount)).to.eql(expectedInstallment);",
+        "    pm.expect(cents(plan.total)).to.eql(cents(plan.installment_amount) * plan.installments);",
+        "  });",
+        "});",
+        "pm.test('each debt includes payment options', () => body.debts.forEach(debt => pm.expect(debt.payment_options.length).to.be.greaterThan(0)));"
+      ]}}]
+    },
+    {
+      "name": "Search debts: SOMENTE_IPVA",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"plate\":\"ABC1234\",\"debt_type\":\"SOMENTE_IPVA\"}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('returns only IPVA debts, preserving duplicates', () => { pm.expect(body.debts).to.have.length(2); body.debts.forEach(debt => pm.expect(debt.type).to.eql('IPVA')); });"]}}]
+    },
+    {
+      "name": "Search debts: SOMENTE_MULTA",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"plate\":\"ABC1234\",\"debt_type\":\"SOMENTE_MULTA\"}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('returns only MULTA debts', () => { pm.expect(body.debts).to.have.length(1); pm.expect(body.debts[0].type).to.eql('MULTA'); });"]}}]
+    },
+    {
+      "name": "Search debts: zero-debt vehicle (mock fixture)",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"plate\":\"ZER0000\"}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 200', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('mock Provider A is selected', () => pm.expect(body.provider).to.eql('provider_a'));", "pm.test('mock ZER0000 has no debts and zero balances', () => { pm.expect(body.debts).to.have.length(0); pm.expect(body.total).to.eql('0.00'); });", "pm.test('zero debt payment plans remain valid', () => body.payment_options.forEach(plan => { pm.expect(plan.total).to.eql('0.00'); pm.expect(plan.installment_amount).to.eql('0.00'); }));"]}}]
+    },
+    {
+      "name": "Provider fallback: A fails, B returns XML",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"plate\":\"ZZZ0000\"}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 200 after fallback', () => pm.response.to.have.status(200));", "const body = pm.response.json();", "pm.test('Provider B is selected', () => pm.expect(body.provider).to.eql('provider_b'));", "pm.test('XML debts normalize to the canonical model', () => { pm.expect(body.debts).to.have.length(3); pm.expect(body.debts[0]).to.have.property('original_amount'); pm.expect(body.debts[0]).to.have.property('payment_options'); });"]}}]
+    },
+    {
+      "name": "Invalid plate (400)",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"plate\":\"BAD\"}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 400', () => pm.response.to.have.status(400));", "pm.test('error identifies invalid plate', () => pm.expect(pm.response.json().error.code).to.eql('invalid_plate'));" ]}}]
+    },
+    {
+      "name": "Missing plate (400)",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 400', () => pm.response.to.have.status(400));", "pm.test('error identifies invalid plate', () => pm.expect(pm.response.json().error.code).to.eql('invalid_plate'));" ]}}]
+    },
+    {
+      "name": "Unknown JSON field (400)",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"plate\":\"ABC1234\",\"debug\":true}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 400', () => pm.response.to.have.status(400));", "pm.test('error identifies unknown fields', () => pm.expect(pm.response.json().error.code).to.eql('unknown_fields'));" ]}}]
+    },
+    {
+      "name": "Wrong content type (400)",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "text/plain"}], "body": {"mode": "raw", "raw": "{\"plate\":\"ABC1234\"}", "options": {"raw": {"language": "text"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 400', () => pm.response.to.have.status(400));", "pm.test('error identifies required JSON content type', () => pm.expect(pm.response.json().error.code).to.eql('content_type_required'));" ]}}]
+    },
+    {
+      "name": "Unknown debt type (422)",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"plate\":\"ABC1234\",\"debt_type\":\"SOMENTE_LICENSING\"}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 422', () => pm.response.to.have.status(422));", "pm.test('error identifies unknown debt type', () => pm.expect(pm.response.json().error.code).to.eql('unknown_debt_type'));" ]}}]
+    },
+    {
+      "name": "Unknown API route (404)",
+      "request": {"method": "GET", "header": [], "url": "{{baseUrl}}/api/unknown-route"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 404', () => pm.response.to.have.status(404));"]}}]
+    },
+    {
+      "name": "Unsupported method (405)",
+      "request": {"method": "GET", "header": [], "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 405', () => pm.response.to.have.status(405));"]}}]
+    },
+    {
+      "name": "Oversized JSON body (413)",
+      "event": [{"listen": "prerequest", "script": {"type": "text/javascript", "exec": ["pm.variables.set('oversizedBody', JSON.stringify({ plate: 'ABC1234', padding: 'x'.repeat(17000) }));"]}}, {"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 413', () => pm.response.to.have.status(413));"]}}],
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{{oversizedBody}}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"}
+    },
+    {
+      "name": "All providers unavailable (503)",
+      "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"plate\":\"ZZZ9999\"}", "options": {"raw": {"language": "json"}}}, "url": "{{baseUrl}}/api/vehicle-debts"},
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('returns HTTP 503', () => pm.response.to.have.status(503));", "pm.test('error identifies provider outage', () => pm.expect(pm.response.json().error.code).to.eql('providers_unavailable'));" ]}}]
+    }
+  ]
+}

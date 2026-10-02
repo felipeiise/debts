@@ -1,0 +1,23 @@
+services:
+  app:
+    build:
+      context: .
+      target: app
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: ${APP_KEY:-}
+      LOG_CHANNEL: stderr
+      PROVIDER_A_URL: ${PROVIDER_A_URL:-}
+      PROVIDER_B_URL: ${PROVIDER_B_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose: ["9000"]
+    restart: unless-stopped
+  nginx:
+    build:
+      context: .
+      target: web
+    ports: ["8080:8080"]
+    depends_on: [app]
+    restart: unless-stopped
