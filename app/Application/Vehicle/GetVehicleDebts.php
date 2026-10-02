@@ -61,7 +61,7 @@ final class GetVehicleDebts
         return ['plate' => $plate->value, 'provider' => $providerName, 'debts' => $items, 'total' => $grandTotal->format(), 'payment_options' => array_map(fn ($option) => $option->toArray(), $this->payments->simulate($grandTotal))];
     }
 
-    /** @param list<array<string, mixed>> $rows
+    /** @param array<array-key, mixed> $rows
      * @return list<Debt>
      */
     private function normalize(array $rows): array
