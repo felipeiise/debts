@@ -77,7 +77,7 @@ LUA;
             $now = (int) floor(microtime(true) * 1000);
             $lease = (int) config('services.vehicle_debts.circuit_breaker.probe_lease_seconds', 15) * 1000;
 
-            return (int) Redis::eval(self::ALLOW_SCRIPT, 1, $this->key($provider), $now, $lease) === 1;
+            return (int) $this->evaluate(self::ALLOW_SCRIPT, $provider, [$now, $lease]) === 1;
         } catch (Throwable $exception) {
             Log::warning('vehicle_debt.circuit_breaker_storage_failed', [
                 'provider' => $provider,
@@ -103,7 +103,7 @@ LUA;
             $window = (int) config('services.vehicle_debts.circuit_breaker.failure_window_seconds', 30) * 1000;
             $cooldown = (int) config('services.vehicle_debts.circuit_breaker.open_seconds', 30) * 1000;
 
-            Redis::eval(self::FAILURE_SCRIPT, 1, $this->key($provider), $now, $threshold, $window, $cooldown);
+            $this->evaluate(self::FAILURE_SCRIPT, $provider, [$now, $threshold, $window, $cooldown]);
         } catch (Throwable $exception) {
             $this->logStorageFailure($provider, 'failure', $exception);
         }
@@ -112,7 +112,7 @@ LUA;
     private function runScript(string $script, string $provider, string $operation): void
     {
         try {
-            Redis::eval($script, 1, $this->key($provider));
+            $this->evaluate($script, $provider);
         } catch (Throwable $exception) {
             $this->logStorageFailure($provider, $operation, $exception);
         }
@@ -124,6 +124,16 @@ LUA;
             'provider' => $provider,
             'operation' => $operation,
             'exception' => $exception::class,
+        ]);
+    }
+
+    /** @param list<int> $arguments */
+    private function evaluate(string $script, string $provider, array $arguments = []): mixed
+    {
+        return Redis::connection()->command('eval', [
+            $script,
+            array_merge([$this->key($provider)], $arguments),
+            1,
         ]);
     }
 
