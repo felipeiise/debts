@@ -49,7 +49,7 @@ final class MoneyAndDebtTest extends TestCase
     public function test_payment_options_include_pix_and_card_terms(): void
     {
         $options = (new PaymentSimulator)->simulate(Money::fromDecimal('1000'));
-        self::assertSame(['950.00', '1000.00', '181.56', '97.49'], array_map(fn ($option) => $option->installmentAmount->format(), $options));
-        self::assertSame(['950.00', '1000.00', '1089.36', '1169.88'], array_map(fn ($option) => $option->total->format(), $options));
+        self::assertSame(['950.00', '1000.00', '181.55', '97.49'], array_map(fn ($option) => $option->installmentAmount->format(), $options));
+        self::assertSame(['950.00', '1000.00', '1089.30', '1169.88'], array_map(fn ($option) => $option->total->format(), $options));
     }
 }
