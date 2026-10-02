@@ -11,11 +11,7 @@ final class NullProviderCircuitBreaker implements ProviderCircuitBreaker
         return true;
     }
 
-    public function recordSuccess(string $provider): void
-    {
-    }
+    public function recordSuccess(string $provider): void {}
 
-    public function recordFailure(string $provider): void
-    {
-    }
+    public function recordFailure(string $provider): void {}
 }

@@ -36,20 +36,15 @@ final class VehicleDebtApiTest extends TestCase
 
     public function test_open_provider_circuit_skips_provider_and_uses_next_provider(): void
     {
-        $this->app->instance(ProviderCircuitBreaker::class, new class implements ProviderCircuitBreaker
-        {
+        $this->app->instance(ProviderCircuitBreaker::class, new class implements ProviderCircuitBreaker {
             public function allows(string $provider): bool
             {
                 return $provider !== 'provider_a';
             }
 
-            public function recordSuccess(string $provider): void
-            {
-            }
+            public function recordSuccess(string $provider): void {}
 
-            public function recordFailure(string $provider): void
-            {
-            }
+            public function recordFailure(string $provider): void {}
         });
 
         Http::fake([
