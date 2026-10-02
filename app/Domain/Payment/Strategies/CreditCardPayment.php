@@ -22,6 +22,7 @@ final class CreditCardPayment implements PaymentStrategy
             $total = Money::cents($paymentCents * $months);
             $options[] = new PaymentOption('CREDIT_CARD', $months, $total, Money::cents($paymentCents));
         }
+
         return $options;
     }
 
@@ -31,7 +32,10 @@ final class CreditCardPayment implements PaymentStrategy
         $scale = 1_000_000_000;
         $result = $scale;
         $base = intdiv($numerator * $scale + intdiv($denominator, 2), $denominator);
-        for ($i = 0; $i < $power; $i++) $result = intdiv($result * $base + intdiv($scale, 2), $scale);
+        for ($i = 0; $i < $power; $i++) {
+            $result = intdiv($result * $base + intdiv($scale, 2), $scale);
+        }
+
         return $result;
     }
 
@@ -48,7 +52,10 @@ final class CreditCardPayment implements PaymentStrategy
         }
         // Include a guard digit for HALF_UP rounding.
         $remainder *= 10;
-        if (intdiv($remainder, $denominator) >= 5) $fraction++;
+        if (intdiv($remainder, $denominator) >= 5) {
+            $fraction++;
+        }
+
         return ($whole * $scale) + $fraction;
     }
 }

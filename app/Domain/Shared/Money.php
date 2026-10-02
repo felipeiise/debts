@@ -23,22 +23,40 @@ final readonly class Money
         if ((int) $fraction[2] >= 5) {
             $cents++;
         }
+
         return new self(($negative ? -1 : 1) * $cents);
     }
 
-    public static function cents(int $cents): self { return new self($cents); }
+    public static function cents(int $cents): self
+    {
+        return new self($cents);
+    }
 
     /** Multiply cents by a rational factor and round HALF_UP to a cent. */
     public function multiplyRatio(int $numerator, int $denominator): self
     {
-        if ($denominator <= 0) throw new InvalidArgumentException('Denominator must be positive.');
+        if ($denominator <= 0) {
+            throw new InvalidArgumentException('Denominator must be positive.');
+        }
         $product = $this->cents * $numerator;
         $sign = $product < 0 ? -1 : 1;
         $absolute = abs($product);
+
         return new self($sign * intdiv($absolute + intdiv($denominator, 2), $denominator));
     }
 
-    public function plus(self $other): self { return new self($this->cents + $other->cents); }
-    public function minus(self $other): self { return new self($this->cents - $other->cents); }
-    public function format(): string { return sprintf('%s%d.%02d', $this->cents < 0 ? '-' : '', intdiv(abs($this->cents), 100), abs($this->cents) % 100); }
+    public function plus(self $other): self
+    {
+        return new self($this->cents + $other->cents);
+    }
+
+    public function minus(self $other): self
+    {
+        return new self($this->cents - $other->cents);
+    }
+
+    public function format(): string
+    {
+        return sprintf('%s%d.%02d', $this->cents < 0 ? '-' : '', intdiv(abs($this->cents), 100), abs($this->cents) % 100);
+    }
 }

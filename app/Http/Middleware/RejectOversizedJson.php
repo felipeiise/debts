@@ -14,6 +14,7 @@ final class RejectOversizedJson
         if ((int) $request->header('Content-Length', 0) > $limit || strlen($request->getContent()) > $limit) {
             return response()->json(['error' => ['code' => 'request_too_large', 'message' => 'Request body exceeds the allowed size.']], 413);
         }
+
         return $next($request);
     }
 }

@@ -2,10 +2,12 @@
 
 namespace App\Providers;
 
+use App\Application\Vehicle\GetVehicleDebts;
+use App\Domain\Debt\DebtCalculator;
+use App\Domain\Payment\PaymentSimulator;
 use App\Infrastructure\Providers\Contracts\DebtProvider;
 use App\Infrastructure\Providers\ProviderA\ProviderAAdapter;
 use App\Infrastructure\Providers\ProviderB\ProviderBAdapter;
-use App\Application\Vehicle\GetVehicleDebts;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -18,8 +20,8 @@ class AppServiceProvider extends ServiceProvider
         ], DebtProvider::class);
         $this->app->bind(GetVehicleDebts::class, fn ($app) => new GetVehicleDebts(
             $app->tagged(DebtProvider::class),
-            $app->make(\App\Domain\Debt\DebtCalculator::class),
-            $app->make(\App\Domain\Payment\PaymentSimulator::class),
+            $app->make(DebtCalculator::class),
+            $app->make(PaymentSimulator::class),
         ));
     }
 }

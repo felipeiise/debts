@@ -11,6 +11,7 @@ final class MultaInterestRule implements InterestRule
     public function interest(Debt $debt, DateTimeImmutable $asOf): Money
     {
         $days = max(0, (int) $debt->dueDate->diff($asOf)->format('%r%a'));
+
         return $debt->originalAmount->multiplyRatio($days, 100);
     }
 }

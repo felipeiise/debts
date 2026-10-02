@@ -10,6 +10,6 @@ final class PaymentSimulator
 {
     public function simulate(Money $amount): array
     {
-        return [...(new PixPayment())->options($amount), ...(new CreditCardPayment())->options($amount)];
+        return [...(new PixPayment)->options($amount), ...(new CreditCardPayment)->options($amount)];
     }
 }

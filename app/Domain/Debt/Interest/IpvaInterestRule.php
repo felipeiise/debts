@@ -13,6 +13,7 @@ final class IpvaInterestRule implements InterestRule
         $days = max(0, (int) $debt->dueDate->diff($asOf)->format('%r%a'));
         $interest = $debt->originalAmount->multiplyRatio(33 * $days, 10000);
         $cap = $debt->originalAmount->multiplyRatio(20, 100);
+
         return Money::cents(min($interest->cents, $cap->cents));
     }
 }
