@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
 
-today = date.today()
+today = date(2024, 5, 10)
 DEBTS = [
     {"id": "ipva-1", "type": "IPVA", "amount": "1200.00", "due_date": (today - timedelta(days=29)).isoformat()},
     {"id": "ipva-2", "type": "IPVA", "amount": "350.50", "due_date": (today + timedelta(days=30)).isoformat()},

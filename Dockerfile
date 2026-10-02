@@ -6,6 +6,8 @@ RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts
 FROM php:8.4-fpm-alpine AS app
 RUN apk add --no-cache libxml2 curl oniguruma \
     && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS libxml2-dev curl-dev oniguruma-dev \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
     && docker-php-ext-install dom simplexml curl mbstring \
     && apk del .build-deps
 WORKDIR /var/www/html

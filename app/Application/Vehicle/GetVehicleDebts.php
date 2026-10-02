@@ -2,6 +2,7 @@
 
 namespace App\Application\Vehicle;
 
+use App\Application\Resilience\ProviderCircuitBreaker;
 use App\Domain\Debt\Debt;
 use App\Domain\Debt\DebtCalculator;
 use App\Domain\Debt\DebtType;
@@ -10,6 +11,8 @@ use App\Domain\Shared\Money;
 use App\Domain\Vehicle\Plate;
 use App\Infrastructure\Providers\Contracts\DebtProvider;
 use DateTimeImmutable;
+use DateTimeZone;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
@@ -18,28 +21,45 @@ use ValueError;
 final class GetVehicleDebts
 {
     /** @param iterable<DebtProvider> $providers */
-    public function __construct(private iterable $providers, private DebtCalculator $calculator, private PaymentSimulator $payments) {}
+    public function __construct(private iterable $providers, private DebtCalculator $calculator, private PaymentSimulator $payments, private ProviderCircuitBreaker $circuitBreaker) {}
 
     public function execute(Plate $plate, string $filter): array
     {
         $debts = null;
         $providerName = null;
         foreach ($this->providers as $provider) {
+            $currentProvider = $provider->name();
+            if (! $this->circuitBreaker->allows($currentProvider)) {
+                Log::notice('vehicle_debt.provider_circuit_open', [
+                    'provider' => $currentProvider,
+                    'plate' => $plate->masked(),
+                ]);
+
+                continue;
+            }
+
             try {
                 $debts = $this->normalize($provider->debts($plate));
-                $providerName = $provider->name();
+                $this->circuitBreaker->recordSuccess($currentProvider);
+                $providerName = $currentProvider;
                 break;
             } catch (UnknownDebtType $exception) {
+                $this->circuitBreaker->recordSuccess($currentProvider);
                 throw $exception;
             } catch (Throwable $exception) {
-                Log::warning('vehicle_debt.provider_failed', ['provider' => $provider->name(), 'plate' => $plate->masked(), 'exception' => $exception::class]);
+                $this->circuitBreaker->recordFailure($currentProvider);
+                Log::warning('vehicle_debt.provider_failed', ['provider' => $currentProvider, 'plate' => $plate->masked(), 'exception' => $exception::class]);
             }
         }
         if ($debts === null) {
             throw new RuntimeException('All debt providers are unavailable.');
         }
 
-        $asOf = new DateTimeImmutable('today');
+        $fixedAsOf = config('services.vehicle_debts.as_of');
+        $utc = new DateTimeZone('UTC');
+        $asOf = is_string($fixedAsOf) && $fixedAsOf !== ''
+            ? (new DateTimeImmutable($fixedAsOf, $utc))->setTimezone($utc)->setTime(0, 0)
+            : Date::now('UTC')->startOfDay()->toDateTimeImmutable();
         if (str_starts_with($filter, 'SOMENTE_')) {
             try {
                 $only = DebtType::from(substr($filter, 8));
@@ -80,7 +100,7 @@ final class GetVehicleDebts
                 throw new UnknownDebtType((string) $row['type']);
             }
             $dateString = (string) $row['due_date'];
-            $date = DateTimeImmutable::createFromFormat('!Y-m-d', $dateString);
+            $date = DateTimeImmutable::createFromFormat('!Y-m-d', $dateString, new DateTimeZone('UTC'));
             if (! $date || $date->format('Y-m-d') !== $dateString) {
                 throw new RuntimeException('Provider returned an invalid due date.');
             }

@@ -10,14 +10,31 @@ services:
       LOG_CHANNEL: stderr
       PROVIDER_A_URL: ${PROVIDER_A_URL:-}
       PROVIDER_B_URL: ${PROVIDER_B_URL:-}
+      VEHICLE_DEBTS_AS_OF: ${VEHICLE_DEBTS_AS_OF:-}
+      CIRCUIT_BREAKER_ENABLED: ${CIRCUIT_BREAKER_ENABLED:-true}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PREFIX: vehicle_debt_
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose: ["9000"]
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
   nginx:
     build:
       context: .
       target: web
     ports: ["8080:8080"]
     depends_on: [app]
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped

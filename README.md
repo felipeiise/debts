@@ -1,6 +1,6 @@
 # Vehicle Debt API
 
-A stateless Laravel 13 API for consulting vehicle debts from two providers, calculating interest, and simulating payment options. It uses PHP 8.4+, integer cents for monetary arithmetic, Nginx, and PHP-FPM. There is no database, authentication, queue, or required cache service.
+A stateless Laravel 13 API for consulting vehicle debts from two providers, calculating interest, and simulating payment options. It uses PHP 8.4+, integer cents for monetary arithmetic, Nginx, PHP-FPM, and Redis for the distributed provider circuit breaker. There is no application database, authentication, or queue.
 
 ## Install Docker on Ubuntu
 
@@ -80,15 +80,24 @@ Set these values in `.env`:
 ```dotenv
 PROVIDER_A_URL=http://host.docker.internal:8001/provider-a
 PROVIDER_B_URL=http://host.docker.internal:8001/provider-b
+VEHICLE_DEBTS_AS_OF=2024-05-10T00:00:00Z
 ```
 
-Compose maps `host.docker.internal` to the host gateway, so the PHP-FPM container can call this server on Linux as well as Docker Desktop. Leave the server running while you start Compose in the next step. The fixtures include overdue and future debts, two IPVA debts, and one MULTA debt. This mock server is for local development only; it has no authentication and returns fixed data.
+Compose maps `host.docker.internal` to the host gateway, so the PHP-FPM container can call this server on Linux as well as Docker Desktop. Leave the server running while you start Compose in the next step. The fixture dates are anchored to `2024-05-10` UTC and include overdue and future debts, two IPVA debts, and one MULTA debt. This mock server is for local development only; it has no authentication and returns fixed data.
 
-Build both images and start Nginx and PHP-FPM in the background:
+Build the images and start Nginx, PHP-FPM, and Redis in the background:
 
 ```sh
 sudo docker compose up --build -d
 ```
+
+Compose starts Redis automatically and keeps it on the private Compose network; the Laravel container connects to it at `redis:6379`. Check that it is ready with:
+
+```sh
+sudo docker compose exec redis redis-cli ping
+```
+
+The expected response is `PONG`. You can start Redis by itself with `sudo docker compose up -d redis` or inspect its logs with `sudo docker compose logs redis`. The Compose Redis service does not publish port 6379 on the host.
 
 Check the containers and application logs:
 
@@ -121,6 +130,37 @@ curl -i -X POST http://localhost:8080/api/vehicle-debts \
   -d '{"plate":"ZZZ0000"}'
 ```
 
+### Test the circuit breaker
+
+The breaker opens for a provider after 5 failed API consultations within 30 seconds. The first five requests to `ZZZ0000` still fall back to Provider B; the sixth request demonstrates that the open circuit skips Provider A. Reset Redis first so earlier calls do not affect the count:
+
+```sh
+sudo docker compose restart redis
+
+for i in {1..5}; do
+  curl -s -X POST http://localhost:8080/api/vehicle-debts \
+    -H 'Content-Type: application/json' \
+    -d '{"plate":"ZZZ0000"}' \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["provider"])'
+done
+```
+
+Each request should print `provider_b`. Send one more request:
+
+```sh
+curl -s -X POST http://localhost:8080/api/vehicle-debts \
+  -H 'Content-Type: application/json' \
+  -d '{"plate":"ZZZ0000"}'
+```
+
+It should still return `provider_b`, while the app logs show Provider A being skipped:
+
+```sh
+sudo docker compose logs --since=1m app | grep vehicle_debt.provider_circuit_open
+```
+
+To verify both providers opening, restart Redis again, send five `ZZZ9999` requests within 30 seconds, then send a sixth. The mock makes both providers fail for this plate, so the sixth request should return HTTP 503 with both providers skipped. The circuit remains open for 30 seconds; after that, the next call is allowed as a half-open probe. Redis is ephemeral in this Compose setup, so restarting it clears the breaker state between runs.
+
 Use `ZER0000` to get a valid zero-debt response, and use `ZZZ9999` to make both mock providers return HTTP 503 and verify the API's 503 response:
 
 ```sh
@@ -135,7 +175,27 @@ Stop the containers while keeping the built images:
 sudo docker compose down
 ```
 
-To rebuild after changing source files, use `sudo docker compose up --build -d` again. The project does not need host PHP, Composer, MySQL, or Redis for the Docker workflow. For local development without Docker, PHP 8.4+, Composer 2, and the DOM, SimpleXML, cURL, and mbstring extensions are required; then run `composer install`, `php artisan key:generate`, and `php artisan serve` after setting up the provider URLs in `.env`.
+To rebuild after changing source files, use `sudo docker compose up --build -d` again. The project does not need host PHP, Composer, or MySQL for the Docker workflow. Redis is started by Compose and is only used for shared circuit-breaker state; if Redis becomes unreachable, the breaker fails open and normal provider calls and fallback continue.
+
+For local development where Laravel runs directly on the host, start a Redis container bound only to localhost:
+
+```sh
+sudo docker run -d --name vehicle-debt-redis \
+  -p 127.0.0.1:6379:6379 \
+  redis:7-alpine
+sudo docker exec vehicle-debt-redis redis-cli ping
+```
+
+Set these Redis values in `.env` for the host-run Laravel process (the PHP Redis extension must be installed):
+
+```dotenv
+REDIS_CLIENT=phpredis
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+CIRCUIT_BREAKER_ENABLED=true
+```
+
+Stop and remove this local Redis container with `sudo docker rm -f vehicle-debt-redis`. For local development without Docker, PHP 8.4+, Composer 2, the DOM, SimpleXML, cURL, mbstring, and Redis extensions are required; then run `composer install`, `php artisan key:generate`, and `php artisan serve` after configuring the provider URLs and Redis in `.env`.
 
 ## API
 
@@ -181,14 +241,14 @@ Provider B must return XML shaped as:
 - IPVA interest is simple interest of 0.33% per overdue calendar day and is capped at 20% of the original principal. MULTA interest is simple interest of 1% per overdue day with no cap. Future and current debts have zero interest.
 - PIX applies a 5% discount to the debt total.
 - Credit-card 1x has no financing charge. Six and twelve installments use the fixed-payment Price/PMT formula at a 2.5% monthly rate. The installment is rounded HALF_UP to cents; the displayed plan total is installment amount times installment count.
-- Calculations use the application date in `America/Sao_Paulo`. The provider's date-only due date is interpreted as a calendar date.
+- Date-only due dates and overdue-day comparisons use UTC calendar dates. Set `VEHICLE_DEBTS_AS_OF=2024-05-10T00:00:00Z` to pin the API to the home-test reference date; the local `.env.example`, Compose app and Postman fixtures use this value. Leave it unset in production to use the current UTC date.
 - The first provider that returns a syntactically valid payload is used. Failures are logged with a masked plate; full plates are returned to the API caller but are not written to logs.
 
 ## Architecture and trade-offs
 
 The domain layer contains plate, debt, money, interest rules, and payment strategies. Provider adapters implement a port and the application use case handles ordered fallback, normalization, calculation, and simulation. HTTP concerns stay in the controller and middleware. This keeps provider formats and pricing policies replaceable without introducing persistence or asynchronous infrastructure for a synchronous lookup.
 
-The service is stateless and can scale horizontally behind a load balancer. Provider resilience currently uses short timeouts and bounded retries; a distributed circuit breaker can be added if production traffic shows a need. There is no database or Redis dependency. For future asynchronous workloads on AWS, SQS is a suitable queue; Kubernetes/EKS can be considered if operational scale warrants it. CI builds the image and runs Composer validation, Pint, PHPStan, and PHPUnit. An AWS deployment can use GitHub OIDC rather than long-lived AWS keys.
+The service is stateless and can scale horizontally behind a load balancer. Provider resilience combines short timeouts, bounded retries, ordered fallback, and a Redis-backed circuit breaker whose state is shared across app replicas. Each provider has an independent circuit: after 5 failures in a 30-second window it opens for 30 seconds, then allows one half-open probe at a time. A successful response closes and resets the circuit; a failed probe reopens it. These settings can be tuned with `CIRCUIT_BREAKER_FAILURE_THRESHOLD`, `CIRCUIT_BREAKER_FAILURE_WINDOW_SECONDS`, `CIRCUIT_BREAKER_OPEN_SECONDS`, and `CIRCUIT_BREAKER_PROBE_LEASE_SECONDS`. Circuit-breaker storage errors are logged and fail open so Redis trouble does not block debt consultations. Redis is used only for this transient state; there is no application database. For future asynchronous workloads on AWS, SQS is a suitable queue; Kubernetes/EKS can be considered if operational scale warrants it. CI builds the image and runs Composer validation, Pint, PHPStan, and PHPUnit. An AWS deployment can use GitHub OIDC rather than long-lived AWS keys.
 
 ## Quality checks
 
@@ -200,12 +260,12 @@ vendor/bin/phpunit
 docker build --target app -t vehicle-debt-api .
 ```
 
-Tests cover money rounding, interest rules and cap, non-overdue amounts, payment plans, JSON success, XML fallback and empty results, provider outages, validation, unknown fields/types, filtering, and duplicate debt types.
+Tests cover money rounding, interest rules and cap, non-overdue amounts, payment plans, JSON success, XML fallback and empty results, provider outages, skipping a provider with an open circuit, validation, unknown fields/types, filtering, and duplicate debt types.
 
 ## Future improvements
 
 - Add real provider-specific schemas, authentication, and contract tests as provider documentation becomes available.
 - Define stable provider debt identifiers and a reconciliation policy if cross-provider comparison is required.
-- Add a shared circuit breaker and metrics/tracing when operational data justifies them.
+- Add provider health metrics and tracing when operational data justifies them.
 - Add rate limiting, API authentication, and request correlation identifiers before exposing a public production endpoint.
 - Use SQS for any future asynchronous processing; preserve stateless application replicas for horizontal scaling.

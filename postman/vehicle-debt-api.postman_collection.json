@@ -19,6 +19,7 @@
         "const body = pm.response.json();",
         "pm.test('Provider A is selected', () => pm.expect(body.provider).to.eql('provider_a'));",
         "pm.test('returns all three mock debts', () => pm.expect(body.debts).to.have.length(3));",
+        "pm.test('uses the fixed 2024-05-10 UTC reference date', () => pm.expect(body.debts.map(debt => [debt.id, debt.due_date, debt.days_overdue])).to.eql([['ipva-1', '2024-04-11', 29], ['ipva-2', '2024-06-09', 0], ['multa-1', '2024-04-20', 20]]));",
         "pm.test('money values are two-decimal strings', () => {",
         "  pm.expect(body.total).to.match(/^\\d+\\.\\d{2}$/);",
         "  body.debts.forEach(debt => { pm.expect(debt.original_amount).to.match(/^\\d+\\.\\d{2}$/); pm.expect(debt.interest).to.match(/^\\d+\\.\\d{2}$/); pm.expect(debt.total).to.match(/^\\d+\\.\\d{2}$/); });",
